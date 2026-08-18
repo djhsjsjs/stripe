@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Оформление подписки</title>
+<script src="https://js.stripe.com/v3/"></script>
+<style>
+  :root { --blue:#3b5bfd; --gray:#f4f5f7; --border:#e2e4e9; --text:#0b0d12; --muted:#6b7280; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; background:#fff; color:var(--text); }
+  .wrap { max-width:520px; margin:0 auto; padding:24px 20px 60px; }
+  .price-card { background:var(--gray); border-radius:16px; padding:20px; margin-bottom:20px; }
+  .price-row { display:flex; justify-content:space-between; align-items:baseline; }
+  .price-title { font-weight:700; font-size:17px; }
+  .price-sub { color:var(--muted); font-size:14px; margin-top:2px; }
+  .price-amount { font-weight:800; font-size:28px; color:var(--blue); }
+  label { display:block; font-weight:600; font-size:14px; margin:16px 0 6px; }
+  input { width:100%; padding:14px; border:1px solid var(--border); border-radius:10px; font-size:16px; }
+  #payment-element { margin-top:6px; }
+  button#pay-btn {
+    width:100%; margin-top:24px; padding:16px; border:none; border-radius:12px;
+    background:var(--blue); color:#fff; font-size:17px; font-weight:700; cursor:pointer;
+  }
+  button#pay-btn:disabled { opacity:.6; cursor:not-allowed; }
+  .disclosure { font-size:12px; color:var(--muted); text-align:center; margin-top:16px; line-height:1.5; }
+  #error-message { color:#d13c3c; font-size:14px; margin-top:10px; min-height:18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="price-card">
+    <div class="price-row">
+      <div>
+        <div class="price-title">Полный отчёт</div>
+        <div class="price-sub">7-дневный пробный период</div>
+      </div>
+      <div class="price-amount">$3.00</div>
+    </div>
+  </div>
+
+  <form id="payment-form">
+    <label for="email">Адрес эл. почты</label>
+    <input id="email" type="email" placeholder="you@example.com" required>
+
+    <label for="name">Полное имя</label>
+    <input id="name" type="text" placeholder="Ваше полное имя" required>
+
+    <label>Данные карты</label>
+    <div id="payment-element"></div>
+
+    <button id="pay-btn" type="submit">Начать моё путешествие →</button>
+    <div id="error-message"></div>
+
+    <div class="disclosure">
+      Продолжая, вы соглашаетесь с условиями и авторизуете списание $3.00 сегодня.
+      После 7-дневного пробного периода $30.00 будет списываться каждую неделю до отмены.
+    </div>
+  </form>
+
+</div>
+
+<script>
+  // Вставь сюда свой Publishable key (начинается с pk_test_ или pk_live_)
+  const stripe = Stripe('pk_test_ВСТАВЬ_СВОЙ_КЛЮЧ');
+
+  // Адрес твоей serverless-функции. Если backend и страница на одном домене
+  // (например, оба на Vercel в одном проекте) — оставь как есть.
+  const BACKEND_URL = '/api/create-subscription';
+
+  let elements = null;   // Stripe Elements появляются только после шага 1
+  let step = 1;           // 1 = вводим email/имя, 2 = вводим карту и платим
+
+  function initialize() {
+    const form = document.getElementById('payment-form');
+    const errorEl = document.getElementById('error-message');
+    const payBtn = document.getElementById('pay-btn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.textContent = '';
+      payBtn.disabled = true;
+
+      if (step === 1) {
+        // Шаг 1: отправляем email/имя на backend, backend создаёт подписку
+        // и возвращает client_secret, дальше показываем поле для карты
+        const email = document.getElementById('email').value;
+        const name = document.getElementById('name').value;
+
+        try {
+          const resp = await fetch(BACKEND_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, name }),
+          });
+          const data = await resp.json();
+          if (data.error) throw new Error(data.error);
+
+          elements = stripe.elements({ clientSecret: data.clientSecret });
+          elements.create('payment').mount('#payment-element');
+
+          step = 2;
+          payBtn.textContent = 'Подтвердить оплату $3.00 →';
+        } catch (err) {
+          errorEl.textContent = err.message;
+        } finally {
+          payBtn.disabled = false;
+        }
+        return;
+      }
+
+      // Шаг 2: подтверждаем оплату введённой картой
+      const { error } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: window.location.href.split('?')[0] + '?success=1' },
+      });
+      if (error) {
+        errorEl.textContent = error.message;
+        payBtn.disabled = false;
+      }
+      // При успехе Stripe сам перенаправит на return_url
+    });
+  }
+
+  initialize();
+</script>
+</body>
+</html>
